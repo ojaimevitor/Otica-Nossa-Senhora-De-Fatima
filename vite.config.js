@@ -9,4 +9,8 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  // Adicione este bloco abaixo:
+  preview: {
+    allowedHosts: ['otica-nossa-senhora-de-fatima.onrender.com']
+  }
 })
