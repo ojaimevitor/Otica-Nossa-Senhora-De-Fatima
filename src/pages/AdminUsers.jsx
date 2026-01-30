@@ -1,0 +1,182 @@
+/**
+ * AdminUsers.jsx - Gestão de usuários
+ */
+import React, { useState, useContext, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import { base44 } from '@/api/base44Client';
+import { useQuery } from '@tanstack/react-query';
+import { cn } from '@/lib/utils';
+import { AppContext } from '@/Layout';
+import { Search, Users, Mail, Shield, User } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from '@/components/ui/table';
+import AdminSidebar from '@/components/admin/AdminSidebar';
+import { format } from 'date-fns';
+
+export default function AdminUsers() {
+  const context = useContext(AppContext);
+  const theme = context?.theme || 'light';
+  const user = context?.user;
+  const navigate = useNavigate();
+
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (user && user.role !== 'admin') {
+      navigate(createPageUrl('Home'));
+    }
+  }, [user, navigate]);
+
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ['admin', 'users'],
+    queryFn: async () => {
+      return await base44.entities.User.list('-created_date', 200);
+    }
+  });
+
+  const filteredUsers = users.filter(u => {
+    const matchSearch = !search ||
+      u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+      u.email?.toLowerCase().includes(search.toLowerCase());
+    return matchSearch;
+  });
+
+  if (!user || user.role !== 'admin') {
+    return (
+      <div className={cn(
+        "min-h-screen flex items-center justify-center",
+        theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+      )}>
+        <p>Verificando permissões...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(
+      "min-h-screen flex",
+      theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+    )}>
+      <AdminSidebar />
+
+      <main className="flex-1 p-6 overflow-auto">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div>
+              <h1 className={cn(
+                "text-2xl font-bold",
+                theme === 'dark' ? 'text-white' : 'text-zinc-900'
+              )}>
+                Usuários
+              </h1>
+              <p className={cn(
+                "text-sm",
+                theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'
+              )}>
+                {users.length} usuários cadastrados
+              </p>
+            </div>
+          </div>
+
+          {/* Busca */}
+          <div className={cn(
+            "flex gap-4 p-4 rounded-xl mb-6",
+            theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+          )}>
+            <div className="flex-1 relative">
+              <Search className={cn(
+                "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4",
+                theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'
+              )} />
+              <Input
+                placeholder="Buscar por nome ou email..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className={cn(
+                  "pl-10",
+                  theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''
+                )}
+              />
+            </div>
+          </div>
+
+          {/* Tabela */}
+          <div className={cn(
+            "rounded-xl overflow-hidden",
+            theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+          )}>
+            <Table>
+              <TableHeader>
+                <TableRow className={theme === 'dark' ? 'border-zinc-800' : ''}>
+                  <TableHead>Usuário</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead className="text-center">Tipo</TableHead>
+                  <TableHead>Cadastro</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredUsers.map((u) => (
+                  <TableRow
+                    key={u.id}
+                    className={theme === 'dark' ? 'border-zinc-800' : ''}
+                  >
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          "h-10 w-10 rounded-full flex items-center justify-center font-bold",
+                          theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-100'
+                        )}>
+                          {(u.full_name || u.email)?.[0]?.toUpperCase() || 'U'}
+                        </div>
+                        <p className="font-medium">{u.full_name || 'Sem nome'}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-zinc-400" />
+                        {u.email}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {u.role === 'admin' ? (
+                        <Badge className="bg-amber-100 text-amber-700">
+                          <Shield className="h-3 w-3 mr-1" />
+                          Admin
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className={theme === 'dark' ? 'bg-zinc-800' : ''}>
+                          <User className="h-3 w-3 mr-1" />
+                          Usuário
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {u.created_date ? format(new Date(u.created_date), 'dd/MM/yyyy') : '-'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            {filteredUsers.length === 0 && (
+              <div className="text-center py-12">
+                <Users className={cn(
+                  "h-12 w-12 mx-auto mb-4",
+                  theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'
+                )} />
+                <p className={theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}>
+                  Nenhum usuário encontrado
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

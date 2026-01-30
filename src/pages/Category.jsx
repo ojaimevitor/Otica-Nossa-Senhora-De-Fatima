@@ -1,0 +1,499 @@
+/**
+ * Category.jsx - Página de categoria de produtos
+ */
+import React, { useState, useEffect, useContext, useMemo } from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery } from '@tanstack/react-query';
+import { cn } from '@/lib/utils';
+import { AppContext } from '@/Layout';
+import { SlidersHorizontal, X, Grid3X3, LayoutList } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger
+} from '@/components/ui/sheet';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
+import { Skeleton } from '@/components/ui/skeleton';
+import ProductCard from '@/components/products/ProductCard';
+import AssistantWidget from '@/components/assistant/AssistantWidget';
+import { motion } from 'framer-motion';
+
+const categoryNames = {
+  'oculos-sol': 'Óculos de Sol',
+  'oculos-grau': 'Óculos de Grau',
+  'lentes-contato': 'Lentes de Contato',
+  'acessorios': 'Acessórios'
+};
+
+const subcategoryNames = {
+  'masculino': 'Masculino',
+  'feminino': 'Feminino',
+  'unissex': 'Unissex',
+  'infantil': 'Infantil'
+};
+
+export default function Category() {
+  const context = useContext(AppContext);
+  const theme = context?.theme || 'light';
+  const user = context?.user;
+
+  // URL params
+  const urlParams = new URLSearchParams(window.location.search);
+  const category = urlParams.get('cat') || 'oculos-sol';
+  const subcategory = urlParams.get('sub') || '';
+
+  // Estados
+  const [sortBy, setSortBy] = useState('relevance');
+  const [viewMode, setViewMode] = useState('grid');
+  const [filters, setFilters] = useState({
+    subcategories: subcategory ? [subcategory] : [],
+    brands: [],
+    priceRange: [0, 5000],
+    onSale: false
+  });
+  const [favorites, setFavorites] = useState([]);
+
+  // Buscar produtos da categoria
+  const { data: products = [], isLoading } = useQuery({
+    queryKey: ['products', 'category', category],
+    queryFn: async () => {
+      const data = await base44.entities.Product.filter(
+        { category, active: true },
+        '-created_date',
+        200
+      );
+      return data;
+    }
+  });
+
+  // Buscar favoritos
+  useEffect(() => {
+    if (user?.email) {
+      base44.entities.Favorite.filter({ user_email: user.email })
+        .then(setFavorites)
+        .catch(() => {});
+    }
+  }, [user?.email]);
+
+  // Marcas disponíveis
+  const availableBrands = useMemo(() => {
+    return [...new Set(products.map(p => p.brand).filter(Boolean))].sort();
+  }, [products]);
+
+  // Filtrar produtos
+  const filteredProducts = useMemo(() => {
+    let results = [...products];
+
+    // Subcategorias
+    if (filters.subcategories.length > 0) {
+      results = results.filter(p => filters.subcategories.includes(p.subcategory));
+    }
+
+    // Marcas
+    if (filters.brands.length > 0) {
+      results = results.filter(p => filters.brands.includes(p.brand));
+    }
+
+    // Preço
+    results = results.filter(p => {
+      const price = p.sale_price || p.price;
+      return price >= filters.priceRange[0] && price <= filters.priceRange[1];
+    });
+
+    // Promoção
+    if (filters.onSale) {
+      results = results.filter(p => p.discount_percent > 0);
+    }
+
+    // Ordenação
+    switch (sortBy) {
+      case 'price_asc':
+        results.sort((a, b) => (a.sale_price || a.price) - (b.sale_price || b.price));
+        break;
+      case 'price_desc':
+        results.sort((a, b) => (b.sale_price || b.price) - (a.sale_price || a.price));
+        break;
+      case 'discount':
+        results.sort((a, b) => (b.discount_percent || 0) - (a.discount_percent || 0));
+        break;
+      case 'name':
+        results.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+    }
+
+    return results;
+  }, [products, filters, sortBy]);
+
+  // Handlers
+  const handleFavoriteToggle = async (product, isFavorited) => {
+    if (!user?.email) {
+      base44.auth.redirectToLogin();
+      return;
+    }
+    if (isFavorited) {
+      const newFav = await base44.entities.Favorite.create({
+        user_email: user.email,
+        product_id: product.id,
+        product_name: product.name,
+        product_image: product.images?.[0] || '',
+        product_price: product.sale_price || product.price
+      });
+      setFavorites([...favorites, newFav]);
+    } else {
+      const fav = favorites.find(f => f.product_id === product.id);
+      if (fav) {
+        await base44.entities.Favorite.delete(fav.id);
+        setFavorites(favorites.filter(f => f.id !== fav.id));
+      }
+    }
+  };
+
+  const toggleSubcategory = (sub) => {
+    setFilters(prev => ({
+      ...prev,
+      subcategories: prev.subcategories.includes(sub)
+        ? prev.subcategories.filter(s => s !== sub)
+        : [...prev.subcategories, sub]
+    }));
+  };
+
+  const toggleBrand = (brand) => {
+    setFilters(prev => ({
+      ...prev,
+      brands: prev.brands.includes(brand)
+        ? prev.brands.filter(b => b !== brand)
+        : [...prev.brands, brand]
+    }));
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      subcategories: [],
+      brands: [],
+      priceRange: [0, 5000],
+      onSale: false
+    });
+  };
+
+  const hasActiveFilters = filters.subcategories.length > 0 || filters.brands.length > 0 ||
+    filters.onSale || filters.priceRange[0] > 0 || filters.priceRange[1] < 5000;
+
+  return (
+    <div className={cn(
+      "min-h-screen",
+      theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+    )}>
+      {/* Header da categoria */}
+      <div className={cn(
+        "py-8 px-4 border-b",
+        theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
+      )}>
+        <div className="max-w-7xl mx-auto">
+          <h1 className={cn(
+            "text-3xl md:text-4xl font-bold mb-2",
+            theme === 'dark' ? 'text-white' : 'text-zinc-900'
+          )}>
+            {categoryNames[category] || 'Produtos'}
+          </h1>
+          <p className={cn(
+            "text-sm",
+            theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'
+          )}>
+            {filteredProducts.length} produtos encontrados
+          </p>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            {/* Filtros Mobile */}
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="outline" className={cn(
+                  "md:hidden",
+                  theme === 'dark' ? 'border-zinc-700' : ''
+                )}>
+                  <SlidersHorizontal className="h-4 w-4 mr-2" />
+                  Filtros
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                <SheetHeader>
+                  <SheetTitle>Filtros</SheetTitle>
+                </SheetHeader>
+                <div className="mt-6 space-y-6">
+                  <FilterContent
+                    theme={theme}
+                    filters={filters}
+                    setFilters={setFilters}
+                    availableBrands={availableBrands}
+                    toggleSubcategory={toggleSubcategory}
+                    toggleBrand={toggleBrand}
+                    showSubcategories={category !== 'lentes-contato' && category !== 'acessorios'}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            {/* Toggle view */}
+            <div className={cn(
+              "hidden md:flex items-center rounded-lg p-1",
+              theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-100'
+            )}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-8 w-8",
+                  viewMode === 'grid' && (theme === 'dark' ? 'bg-zinc-700' : 'bg-white shadow-sm')
+                )}
+                onClick={() => setViewMode('grid')}
+              >
+                <Grid3X3 className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-8 w-8",
+                  viewMode === 'list' && (theme === 'dark' ? 'bg-zinc-700' : 'bg-white shadow-sm')
+                )}
+                onClick={() => setViewMode('list')}
+              >
+                <LayoutList className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="h-4 w-4 mr-1" />
+                Limpar
+              </Button>
+            )}
+
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className={cn(
+                "w-44",
+                theme === 'dark' ? 'border-zinc-700' : ''
+              )}>
+                <SelectValue placeholder="Ordenar" />
+              </SelectTrigger>
+              <SelectContent className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                <SelectItem value="relevance">Relevância</SelectItem>
+                <SelectItem value="price_asc">Menor preço</SelectItem>
+                <SelectItem value="price_desc">Maior preço</SelectItem>
+                <SelectItem value="discount">Maior desconto</SelectItem>
+                <SelectItem value="name">Nome A-Z</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Tags de filtros ativos */}
+        {hasActiveFilters && (
+          <div className="flex flex-wrap gap-2 mb-6">
+            {filters.subcategories.map(sub => (
+              <Badge
+                key={sub}
+                variant="secondary"
+                className="cursor-pointer"
+                onClick={() => toggleSubcategory(sub)}
+              >
+                {subcategoryNames[sub] || sub} <X className="h-3 w-3 ml-1" />
+              </Badge>
+            ))}
+            {filters.brands.map(brand => (
+              <Badge
+                key={brand}
+                variant="secondary"
+                className="cursor-pointer"
+                onClick={() => toggleBrand(brand)}
+              >
+                {brand} <X className="h-3 w-3 ml-1" />
+              </Badge>
+            ))}
+            {filters.onSale && (
+              <Badge
+                variant="secondary"
+                className="cursor-pointer"
+                onClick={() => setFilters(prev => ({ ...prev, onSale: false }))}
+              >
+                Em promoção <X className="h-3 w-3 ml-1" />
+              </Badge>
+            )}
+          </div>
+        )}
+
+        {/* Layout */}
+        <div className="flex gap-8">
+          {/* Sidebar */}
+          <aside className="hidden md:block w-64 flex-shrink-0">
+            <div className={cn(
+              "sticky top-32 rounded-xl p-5 space-y-6",
+              theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+            )}>
+              <h3 className="font-semibold">Filtros</h3>
+              <FilterContent
+                theme={theme}
+                filters={filters}
+                setFilters={setFilters}
+                availableBrands={availableBrands}
+                toggleSubcategory={toggleSubcategory}
+                toggleBrand={toggleBrand}
+                showSubcategories={category !== 'lentes-contato' && category !== 'acessorios'}
+              />
+            </div>
+          </aside>
+
+          {/* Grid */}
+          <div className="flex-1">
+            {isLoading ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="space-y-3">
+                    <Skeleton className="aspect-square rounded-xl" />
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                ))}
+              </div>
+            ) : filteredProducts.length > 0 ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className={cn(
+                  "grid gap-4",
+                  viewMode === 'grid'
+                    ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+                    : "grid-cols-1 md:grid-cols-2"
+                )}
+              >
+                {filteredProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    isFavorited={favorites.some(f => f.product_id === product.id)}
+                    onFavoriteToggle={handleFavoriteToggle}
+                  />
+                ))}
+              </motion.div>
+            ) : (
+              <div className="text-center py-16">
+                <p className={cn(
+                  "text-lg",
+                  theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'
+                )}>
+                  Nenhum produto encontrado com esses filtros
+                </p>
+                <Button variant="outline" className="mt-4" onClick={clearFilters}>
+                  Limpar filtros
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <AssistantWidget />
+    </div>
+  );
+}
+
+function FilterContent({ theme, filters, setFilters, availableBrands, toggleSubcategory, toggleBrand, showSubcategories }) {
+  return (
+    <>
+      {/* Subcategorias (gênero) */}
+      {showSubcategories && (
+        <div>
+          <h4 className={cn(
+            "text-sm font-medium mb-3",
+            theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'
+          )}>
+            Gênero
+          </h4>
+          <div className="space-y-2">
+            {Object.entries(subcategoryNames).map(([value, label]) => (
+              <div key={value} className="flex items-center gap-2">
+                <Checkbox
+                  id={`sub-${value}`}
+                  checked={filters.subcategories.includes(value)}
+                  onCheckedChange={() => toggleSubcategory(value)}
+                />
+                <Label htmlFor={`sub-${value}`} className="text-sm cursor-pointer">
+                  {label}
+                </Label>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Marcas */}
+      <div>
+        <h4 className={cn(
+          "text-sm font-medium mb-3",
+          theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'
+        )}>
+          Marcas
+        </h4>
+        <div className="space-y-2 max-h-48 overflow-y-auto">
+          {availableBrands.map(brand => (
+            <div key={brand} className="flex items-center gap-2">
+              <Checkbox
+                id={`brand-${brand}`}
+                checked={filters.brands.includes(brand)}
+                onCheckedChange={() => toggleBrand(brand)}
+              />
+              <Label htmlFor={`brand-${brand}`} className="text-sm cursor-pointer">
+                {brand}
+              </Label>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Preço */}
+      <div>
+        <h4 className={cn(
+          "text-sm font-medium mb-3",
+          theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'
+        )}>
+          Faixa de Preço
+        </h4>
+        <Slider
+          value={filters.priceRange}
+          onValueChange={(value) => setFilters(prev => ({ ...prev, priceRange: value }))}
+          min={0}
+          max={5000}
+          step={50}
+          className="mb-3"
+        />
+        <div className="flex justify-between text-sm">
+          <span>R$ {filters.priceRange[0]}</span>
+          <span>R$ {filters.priceRange[1]}</span>
+        </div>
+      </div>
+
+      {/* Promoção */}
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="onSale"
+          checked={filters.onSale}
+          onCheckedChange={(checked) => setFilters(prev => ({ ...prev, onSale: checked }))}
+        />
+        <Label htmlFor="onSale" className="text-sm cursor-pointer">
+          Em promoção
+        </Label>
+      </div>
+    </>
+  );
+}

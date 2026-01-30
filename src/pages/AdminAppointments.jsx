@@ -1,0 +1,255 @@
+/**
+ * AdminAppointments.jsx - Gestão de agendamentos de exames
+ */
+import React, { useState, useContext, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { cn } from '@/lib/utils';
+import { AppContext } from '@/Layout';
+import { Search, Calendar, Clock, CheckCircle, XCircle, Phone, MoreVertical } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from '@/components/ui/table';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import AdminSidebar from '@/components/admin/AdminSidebar';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { toast } from 'sonner';
+
+const statusConfig = {
+  scheduled: { label: 'Agendado', color: 'bg-blue-100 text-blue-700' },
+  confirmed: { label: 'Confirmado', color: 'bg-green-100 text-green-700' },
+  completed: { label: 'Realizado', color: 'bg-purple-100 text-purple-700' },
+  cancelled: { label: 'Cancelado', color: 'bg-red-100 text-red-700' }
+};
+
+const examTypes = {
+  refraction: 'Refração',
+  tonometry: 'Tonometria',
+  fundoscopy: 'Fundoscopia',
+  complete: 'Exame Completo'
+};
+
+export default function AdminAppointments() {
+  const context = useContext(AppContext);
+  const theme = context?.theme || 'light';
+  const user = context?.user;
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+
+  useEffect(() => {
+    if (user && user.role !== 'admin') {
+      navigate(createPageUrl('Home'));
+    }
+  }, [user, navigate]);
+
+  const { data: appointments = [] } = useQuery({
+    queryKey: ['admin', 'appointments'],
+    queryFn: async () => {
+      return await base44.entities.Appointment.list('-appointment_date', 100);
+    }
+  });
+
+  const filteredAppointments = appointments.filter(a => {
+    const matchSearch = !search ||
+      a.user_name?.toLowerCase().includes(search.toLowerCase()) ||
+      a.user_phone?.includes(search);
+    const matchStatus = filterStatus === 'all' || a.status === filterStatus;
+    return matchSearch && matchStatus;
+  });
+
+  const updateStatus = async (appointment, newStatus) => {
+    try {
+      await base44.entities.Appointment.update(appointment.id, { status: newStatus });
+      toast.success(`Status atualizado para "${statusConfig[newStatus].label}"`);
+      queryClient.invalidateQueries(['admin', 'appointments']);
+    } catch (e) {
+      toast.error('Erro ao atualizar status');
+    }
+  };
+
+  if (!user || user.role !== 'admin') {
+    return (
+      <div className={cn(
+        "min-h-screen flex items-center justify-center",
+        theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+      )}>
+        <p>Verificando permissões...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(
+      "min-h-screen flex",
+      theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+    )}>
+      <AdminSidebar />
+
+      <main className="flex-1 p-6 overflow-auto">
+        <div className="max-w-6xl mx-auto">
+          <div className="mb-6">
+            <h1 className={cn(
+              "text-2xl font-bold",
+              theme === 'dark' ? 'text-white' : 'text-zinc-900'
+            )}>
+              Agendamentos de Exames
+            </h1>
+            <p className={cn(
+              "text-sm",
+              theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'
+            )}>
+              {appointments.length} agendamentos
+            </p>
+          </div>
+
+          {/* Filtros */}
+          <div className={cn(
+            "flex flex-wrap gap-4 p-4 rounded-xl mb-6",
+            theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+          )}>
+            <div className="flex-1 min-w-[200px] relative">
+              <Search className={cn(
+                "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4",
+                theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'
+              )} />
+              <Input
+                placeholder="Buscar por nome ou telefone..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className={cn(
+                  "pl-10",
+                  theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''
+                )}
+              />
+            </div>
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className={cn(
+                "w-48",
+                theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''
+              )}>
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                <SelectItem value="all">Todos os status</SelectItem>
+                <SelectItem value="scheduled">Agendado</SelectItem>
+                <SelectItem value="confirmed">Confirmado</SelectItem>
+                <SelectItem value="completed">Realizado</SelectItem>
+                <SelectItem value="cancelled">Cancelado</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Tabela */}
+          <div className={cn(
+            "rounded-xl overflow-hidden",
+            theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+          )}>
+            <Table>
+              <TableHeader>
+                <TableRow className={theme === 'dark' ? 'border-zinc-800' : ''}>
+                  <TableHead>Paciente</TableHead>
+                  <TableHead>Exame</TableHead>
+                  <TableHead>Data / Hora</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
+                  <TableHead className="w-12"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredAppointments.map((apt) => {
+                  const status = statusConfig[apt.status] || statusConfig.scheduled;
+                  return (
+                    <TableRow
+                      key={apt.id}
+                      className={theme === 'dark' ? 'border-zinc-800' : ''}
+                    >
+                      <TableCell>
+                        <p className="font-medium">{apt.user_name}</p>
+                        <div className="flex items-center gap-1 text-sm text-zinc-500">
+                          <Phone className="h-3 w-3" />
+                          {apt.user_phone}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className={theme === 'dark' ? 'bg-zinc-800' : ''}>
+                          {examTypes[apt.exam_type] || apt.exam_type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-zinc-400" />
+                          <div>
+                            <p className="font-medium">
+                              {apt.appointment_date
+                                ? format(new Date(apt.appointment_date + 'T12:00:00'), "d 'de' MMM", { locale: ptBR })
+                                : '-'}
+                            </p>
+                            <p className="text-sm text-zinc-500">{apt.appointment_time}</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge className={status.color}>{status.label}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                            <DropdownMenuItem onClick={() => updateStatus(apt, 'confirmed')}>
+                              <CheckCircle className="h-4 w-4 mr-2 text-green-500" />
+                              Confirmar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => updateStatus(apt, 'completed')}>
+                              <CheckCircle className="h-4 w-4 mr-2 text-purple-500" />
+                              Marcar como Realizado
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-red-500"
+                              onClick={() => updateStatus(apt, 'cancelled')}
+                            >
+                              <XCircle className="h-4 w-4 mr-2" />
+                              Cancelar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+
+            {filteredAppointments.length === 0 && (
+              <div className="text-center py-12">
+                <Calendar className={cn(
+                  "h-12 w-12 mx-auto mb-4",
+                  theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'
+                )} />
+                <p className={theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}>
+                  Nenhum agendamento encontrado
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

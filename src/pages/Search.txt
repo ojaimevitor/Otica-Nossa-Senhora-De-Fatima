@@ -1,0 +1,623 @@
+/**
+ * Search.jsx - Página de busca com normalização
+ * Contador de resultados e scroll automático
+ */
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery } from '@tanstack/react-query';
+import { cn } from '@/lib/utils';
+import { AppContext } from '@/Layout';
+import { Search as SearchIcon, SlidersHorizontal, X, ChevronDown } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger
+} from '@/components/ui/sheet';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
+import { Skeleton } from '@/components/ui/skeleton';
+import ProductCard from '@/components/products/ProductCard';
+import AssistantWidget from '@/components/assistant/AssistantWidget';
+import { motion, AnimatePresence } from 'framer-motion';
+
+// Normalização de texto para busca
+const normalizeText = (text) => {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim();
+};
+
+export default function Search() {
+  const context = useContext(AppContext);
+  const theme = context?.theme || 'light';
+  const user = context?.user;
+  
+  const resultsRef = useRef(null);
+  const [searchExecuted, setSearchExecuted] = useState(false);
+  
+  // URL params
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialQuery = urlParams.get('q') || '';
+  const isPromo = urlParams.get('promo') === 'true';
+  const isNew = urlParams.get('new') === 'true';
+
+  // Estados de filtro
+  const [searchQuery, setSearchQuery] = useState(initialQuery);
+  const [activeSearch, setActiveSearch] = useState(initialQuery);
+  const [sortBy, setSortBy] = useState('relevance');
+  const [filters, setFilters] = useState({
+    categories: [],
+    brands: [],
+    priceRange: [0, 5000],
+    onSale: isPromo,
+    newArrivals: isNew
+  });
+  const [favorites, setFavorites] = useState([]);
+
+  // Buscar todos os produtos
+  const { data: allProducts = [], isLoading } = useQuery({
+    queryKey: ['products', 'all'],
+    queryFn: async () => {
+      const products = await base44.entities.Product.filter({ active: true }, '-created_date', 500);
+      return products;
+    }
+  });
+
+  // Buscar favoritos
+  useEffect(() => {
+    if (user?.email) {
+      base44.entities.Favorite.filter({ user_email: user.email })
+        .then(setFavorites)
+        .catch(() => {});
+    }
+  }, [user?.email]);
+
+  // Executar busca quando URL mudar
+  useEffect(() => {
+    if (initialQuery || isPromo || isNew) {
+      setActiveSearch(initialQuery);
+      setSearchExecuted(true);
+      // Scroll para resultados
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 300);
+    }
+  }, [initialQuery, isPromo, isNew]);
+
+  // Filtrar e ordenar produtos
+  const filteredProducts = React.useMemo(() => {
+    let results = [...allProducts];
+    const normalizedQuery = normalizeText(activeSearch);
+
+    // Filtro por busca textual
+    if (normalizedQuery) {
+      results = results.filter(p => {
+        const searchFields = [
+          normalizeText(p.name),
+          normalizeText(p.brand),
+          normalizeText(p.category),
+          normalizeText(p.description),
+          normalizeText(p.sku)
+        ].join(' ');
+        return searchFields.includes(normalizedQuery);
+      });
+    }
+
+    // Filtro por categorias
+    if (filters.categories.length > 0) {
+      results = results.filter(p => filters.categories.includes(p.category));
+    }
+
+    // Filtro por marcas
+    if (filters.brands.length > 0) {
+      results = results.filter(p => filters.brands.includes(p.brand));
+    }
+
+    // Filtro por faixa de preço
+    results = results.filter(p => {
+      const price = p.sale_price || p.price;
+      return price >= filters.priceRange[0] && price <= filters.priceRange[1];
+    });
+
+    // Filtro promoção
+    if (filters.onSale) {
+      results = results.filter(p => p.discount_percent > 0);
+    }
+
+    // Filtro lançamentos
+    if (filters.newArrivals) {
+      results = results.filter(p => p.new_arrival);
+    }
+
+    // Ordenação
+    switch (sortBy) {
+      case 'price_asc':
+        results.sort((a, b) => (a.sale_price || a.price) - (b.sale_price || b.price));
+        break;
+      case 'price_desc':
+        results.sort((a, b) => (b.sale_price || b.price) - (a.sale_price || a.price));
+        break;
+      case 'name':
+        results.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case 'discount':
+        results.sort((a, b) => (b.discount_percent || 0) - (a.discount_percent || 0));
+        break;
+      default:
+        // Relevância: boost em matches exatos
+        if (normalizedQuery) {
+          results.sort((a, b) => {
+            const aExact = normalizeText(a.name).includes(normalizedQuery) ? 1 : 0;
+            const bExact = normalizeText(b.name).includes(normalizedQuery) ? 1 : 0;
+            return bExact - aExact;
+          });
+        }
+    }
+
+    return results;
+  }, [allProducts, activeSearch, filters, sortBy]);
+
+  // Marcas e categorias disponíveis
+  const availableBrands = [...new Set(allProducts.map(p => p.brand).filter(Boolean))].sort();
+  const availableCategories = [
+    { value: 'oculos-sol', label: 'Óculos de Sol' },
+    { value: 'oculos-grau', label: 'Óculos de Grau' },
+    { value: 'lentes-contato', label: 'Lentes de Contato' },
+    { value: 'acessorios', label: 'Acessórios' }
+  ];
+
+  // Handlers
+  const handleSearch = (e) => {
+    e.preventDefault();
+    setActiveSearch(searchQuery);
+    setSearchExecuted(true);
+    // Tracking
+    base44.entities.AnalyticsEvent.create({
+      event_name: 'search',
+      metadata: { query: searchQuery }
+    }).catch(() => {});
+    // Scroll para resultados
+    setTimeout(() => {
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 300);
+  };
+
+  const handleFavoriteToggle = async (product, isFavorited) => {
+    if (!user?.email) {
+      base44.auth.redirectToLogin();
+      return;
+    }
+    if (isFavorited) {
+      const newFav = await base44.entities.Favorite.create({
+        user_email: user.email,
+        product_id: product.id,
+        product_name: product.name,
+        product_image: product.images?.[0] || '',
+        product_price: product.sale_price || product.price
+      });
+      setFavorites([...favorites, newFav]);
+    } else {
+      const fav = favorites.find(f => f.product_id === product.id);
+      if (fav) {
+        await base44.entities.Favorite.delete(fav.id);
+        setFavorites(favorites.filter(f => f.id !== fav.id));
+      }
+    }
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      categories: [],
+      brands: [],
+      priceRange: [0, 5000],
+      onSale: false,
+      newArrivals: false
+    });
+  };
+
+  const toggleCategory = (cat) => {
+    setFilters(prev => ({
+      ...prev,
+      categories: prev.categories.includes(cat)
+        ? prev.categories.filter(c => c !== cat)
+        : [...prev.categories, cat]
+    }));
+  };
+
+  const toggleBrand = (brand) => {
+    setFilters(prev => ({
+      ...prev,
+      brands: prev.brands.includes(brand)
+        ? prev.brands.filter(b => b !== brand)
+        : [...prev.brands, brand]
+    }));
+  };
+
+  const hasActiveFilters = filters.categories.length > 0 || filters.brands.length > 0 || 
+    filters.onSale || filters.newArrivals || filters.priceRange[0] > 0 || filters.priceRange[1] < 5000;
+
+  return (
+    <div className={cn(
+      "min-h-screen",
+      theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+    )}>
+      {/* Header de Busca */}
+      <div className={cn(
+        "sticky top-0 z-40 border-b",
+        theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
+      )}>
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <form onSubmit={handleSearch} className="flex gap-3">
+            <div className="relative flex-1">
+              <SearchIcon className={cn(
+                "absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5",
+                theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'
+              )} />
+              <Input
+                type="search"
+                placeholder="Buscar por produto, marca, código..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={cn(
+                  "pl-12 h-12 text-lg rounded-xl",
+                  theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''
+                )}
+              />
+              {searchQuery && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-12 top-1/2 -translate-y-1/2"
+                  onClick={() => setSearchQuery('')}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            <Button 
+              type="submit" 
+              size="lg"
+              className={cn(
+                "h-12 px-8",
+                theme === 'dark' ? 'bg-amber-500 text-zinc-900 hover:bg-amber-400' : ''
+              )}
+            >
+              Buscar
+            </Button>
+          </form>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Toolbar */}
+        <div ref={resultsRef} className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-4">
+            {/* Filtros Mobile */}
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="outline" className={cn(
+                  "md:hidden",
+                  theme === 'dark' ? 'border-zinc-700' : ''
+                )}>
+                  <SlidersHorizontal className="h-4 w-4 mr-2" />
+                  Filtros
+                  {hasActiveFilters && (
+                    <Badge className="ml-2 bg-amber-500 text-zinc-900">!</Badge>
+                  )}
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                <SheetHeader>
+                  <SheetTitle>Filtros</SheetTitle>
+                </SheetHeader>
+                <div className="mt-6 space-y-6">
+                  {/* Conteúdo dos filtros (mesmo do desktop) */}
+                  <FilterContent
+                    theme={theme}
+                    filters={filters}
+                    setFilters={setFilters}
+                    availableCategories={availableCategories}
+                    availableBrands={availableBrands}
+                    toggleCategory={toggleCategory}
+                    toggleBrand={toggleBrand}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            {/* Contador de resultados */}
+            <p className={cn(
+              "text-sm",
+              theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'
+            )}>
+              {searchExecuted && (
+                <>
+                  <span className="font-semibold">{filteredProducts.length}</span>
+                  {' '}produto{filteredProducts.length !== 1 ? 's' : ''} encontrado{filteredProducts.length !== 1 ? 's' : ''}
+                  {activeSearch && (
+                    <> para "<span className="font-medium">{activeSearch}</span>"</>
+                  )}
+                </>
+              )}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Limpar filtros */}
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="h-4 w-4 mr-1" />
+                Limpar filtros
+              </Button>
+            )}
+
+            {/* Ordenação */}
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className={cn(
+                "w-48",
+                theme === 'dark' ? 'border-zinc-700' : ''
+              )}>
+                <SelectValue placeholder="Ordenar por" />
+              </SelectTrigger>
+              <SelectContent className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                <SelectItem value="relevance">Relevância</SelectItem>
+                <SelectItem value="price_asc">Menor preço</SelectItem>
+                <SelectItem value="price_desc">Maior preço</SelectItem>
+                <SelectItem value="discount">Maior desconto</SelectItem>
+                <SelectItem value="name">Nome A-Z</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Filtros ativos (tags) */}
+        {hasActiveFilters && (
+          <div className="flex flex-wrap gap-2 mb-6">
+            {filters.categories.map(cat => {
+              const catLabel = availableCategories.find(c => c.value === cat)?.label || cat;
+              return (
+                <Badge
+                  key={cat}
+                  variant="secondary"
+                  className={cn(
+                    "cursor-pointer",
+                    theme === 'dark' ? 'bg-zinc-800' : ''
+                  )}
+                  onClick={() => toggleCategory(cat)}
+                >
+                  {catLabel} <X className="h-3 w-3 ml-1" />
+                </Badge>
+              );
+            })}
+            {filters.brands.map(brand => (
+              <Badge
+                key={brand}
+                variant="secondary"
+                className={cn(
+                  "cursor-pointer",
+                  theme === 'dark' ? 'bg-zinc-800' : ''
+                )}
+                onClick={() => toggleBrand(brand)}
+              >
+                {brand} <X className="h-3 w-3 ml-1" />
+              </Badge>
+            ))}
+            {filters.onSale && (
+              <Badge
+                variant="secondary"
+                className={cn(
+                  "cursor-pointer",
+                  theme === 'dark' ? 'bg-zinc-800' : ''
+                )}
+                onClick={() => setFilters(prev => ({ ...prev, onSale: false }))}
+              >
+                Em promoção <X className="h-3 w-3 ml-1" />
+              </Badge>
+            )}
+            {filters.newArrivals && (
+              <Badge
+                variant="secondary"
+                className={cn(
+                  "cursor-pointer",
+                  theme === 'dark' ? 'bg-zinc-800' : ''
+                )}
+                onClick={() => setFilters(prev => ({ ...prev, newArrivals: false }))}
+              >
+                Lançamentos <X className="h-3 w-3 ml-1" />
+              </Badge>
+            )}
+          </div>
+        )}
+
+        {/* Layout principal */}
+        <div className="flex gap-8">
+          {/* Sidebar Filtros Desktop */}
+          <aside className="hidden md:block w-64 flex-shrink-0">
+            <div className={cn(
+              "sticky top-32 rounded-xl p-5 space-y-6",
+              theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+            )}>
+              <h3 className="font-semibold">Filtros</h3>
+              <FilterContent
+                theme={theme}
+                filters={filters}
+                setFilters={setFilters}
+                availableCategories={availableCategories}
+                availableBrands={availableBrands}
+                toggleCategory={toggleCategory}
+                toggleBrand={toggleBrand}
+              />
+            </div>
+          </aside>
+
+          {/* Grid de produtos */}
+          <div className="flex-1">
+            {isLoading ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="space-y-3">
+                    <Skeleton className="aspect-square rounded-xl" />
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                ))}
+              </div>
+            ) : filteredProducts.length > 0 ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
+              >
+                <AnimatePresence>
+                  {filteredProducts.map((product) => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      isFavorited={favorites.some(f => f.product_id === product.id)}
+                      onFavoriteToggle={handleFavoriteToggle}
+                    />
+                  ))}
+                </AnimatePresence>
+              </motion.div>
+            ) : (
+              <div className="text-center py-16">
+                <SearchIcon className={cn(
+                  "h-16 w-16 mx-auto mb-4",
+                  theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'
+                )} />
+                <h3 className={cn(
+                  "text-xl font-semibold mb-2",
+                  theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'
+                )}>
+                  Nenhum produto encontrado
+                </h3>
+                <p className={cn(
+                  "text-sm mb-4",
+                  theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'
+                )}>
+                  Tente buscar por outros termos ou ajuste os filtros
+                </p>
+                <Button variant="outline" onClick={clearFilters}>
+                  Limpar filtros
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <AssistantWidget />
+    </div>
+  );
+}
+
+// Componente de filtros
+function FilterContent({ theme, filters, setFilters, availableCategories, availableBrands, toggleCategory, toggleBrand }) {
+  return (
+    <>
+      {/* Categorias */}
+      <div>
+        <h4 className={cn(
+          "text-sm font-medium mb-3",
+          theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'
+        )}>
+          Categorias
+        </h4>
+        <div className="space-y-2">
+          {availableCategories.map(cat => (
+            <div key={cat.value} className="flex items-center gap-2">
+              <Checkbox
+                id={`cat-${cat.value}`}
+                checked={filters.categories.includes(cat.value)}
+                onCheckedChange={() => toggleCategory(cat.value)}
+              />
+              <Label htmlFor={`cat-${cat.value}`} className="text-sm cursor-pointer">
+                {cat.label}
+              </Label>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Marcas */}
+      <div>
+        <h4 className={cn(
+          "text-sm font-medium mb-3",
+          theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'
+        )}>
+          Marcas
+        </h4>
+        <div className="space-y-2 max-h-48 overflow-y-auto">
+          {availableBrands.map(brand => (
+            <div key={brand} className="flex items-center gap-2">
+              <Checkbox
+                id={`brand-${brand}`}
+                checked={filters.brands.includes(brand)}
+                onCheckedChange={() => toggleBrand(brand)}
+              />
+              <Label htmlFor={`brand-${brand}`} className="text-sm cursor-pointer">
+                {brand}
+              </Label>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Faixa de preço */}
+      <div>
+        <h4 className={cn(
+          "text-sm font-medium mb-3",
+          theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'
+        )}>
+          Faixa de Preço
+        </h4>
+        <Slider
+          value={filters.priceRange}
+          onValueChange={(value) => setFilters(prev => ({ ...prev, priceRange: value }))}
+          min={0}
+          max={5000}
+          step={50}
+          className="mb-3"
+        />
+        <div className="flex items-center justify-between text-sm">
+          <span>R$ {filters.priceRange[0]}</span>
+          <span>R$ {filters.priceRange[1]}</span>
+        </div>
+      </div>
+
+      {/* Outros filtros */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="onSale"
+            checked={filters.onSale}
+            onCheckedChange={(checked) => setFilters(prev => ({ ...prev, onSale: checked }))}
+          />
+          <Label htmlFor="onSale" className="text-sm cursor-pointer">
+            Em promoção
+          </Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="newArrivals"
+            checked={filters.newArrivals}
+            onCheckedChange={(checked) => setFilters(prev => ({ ...prev, newArrivals: checked }))}
+          />
+          <Label htmlFor="newArrivals" className="text-sm cursor-pointer">
+            Lançamentos
+          </Label>
+        </div>
+      </div>
+    </>
+  );
+}

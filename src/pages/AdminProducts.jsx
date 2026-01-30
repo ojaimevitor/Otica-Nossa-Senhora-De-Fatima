@@ -1,0 +1,581 @@
+/**
+ * AdminProducts.jsx - CRUD de produtos
+ */
+import React, { useState, useContext, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { cn } from '@/lib/utils';
+import { AppContext } from '@/Layout';
+import {
+  Plus, Search, Edit, Trash2, Package, AlertTriangle, Filter, MoreVertical
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from '@/components/ui/table';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
+} from '@/components/ui/dialog';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import { Textarea } from '@/components/ui/textarea';
+import AdminSidebar from '@/components/admin/AdminSidebar';
+import { toast } from 'sonner';
+
+const categories = [
+  { value: 'oculos-sol', label: 'Óculos de Sol' },
+  { value: 'oculos-grau', label: 'Óculos de Grau' },
+  { value: 'lentes-contato', label: 'Lentes de Contato' },
+  { value: 'acessorios', label: 'Acessórios' }
+];
+
+const subcategories = [
+  { value: 'masculino', label: 'Masculino' },
+  { value: 'feminino', label: 'Feminino' },
+  { value: 'unissex', label: 'Unissex' },
+  { value: 'infantil', label: 'Infantil' }
+];
+
+const emptyProduct = {
+  name: '',
+  brand: '',
+  category: '',
+  subcategory: '',
+  sku: '',
+  price: 0,
+  sale_price: 0,
+  discount_percent: 0,
+  stock: 0,
+  images: [],
+  description: '',
+  active: true,
+  featured: false,
+  new_arrival: false,
+  best_seller: false
+};
+
+export default function AdminProducts() {
+  const context = useContext(AppContext);
+  const theme = context?.theme || 'light';
+  const user = context?.user;
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [search, setSearch] = useState('');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [formData, setFormData] = useState(emptyProduct);
+  const [saving, setSaving] = useState(false);
+
+  // Verificar admin
+  useEffect(() => {
+    if (user && user.role !== 'admin') {
+      navigate(createPageUrl('Home'));
+    }
+  }, [user, navigate]);
+
+  // Buscar produtos
+  const { data: products = [], isLoading } = useQuery({
+    queryKey: ['admin', 'products'],
+    queryFn: async () => {
+      return await base44.entities.Product.list('-created_date', 500);
+    }
+  });
+
+  // Filtrar produtos
+  const filteredProducts = products.filter(p => {
+    const matchSearch = !search || 
+      p.name?.toLowerCase().includes(search.toLowerCase()) ||
+      p.brand?.toLowerCase().includes(search.toLowerCase()) ||
+      p.sku?.toLowerCase().includes(search.toLowerCase());
+    const matchCategory = filterCategory === 'all' || p.category === filterCategory;
+    return matchSearch && matchCategory;
+  });
+
+  const formatPrice = (value) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  };
+
+  // Abrir dialog para criar
+  const handleCreate = () => {
+    setEditingProduct(null);
+    setFormData(emptyProduct);
+    setDialogOpen(true);
+  };
+
+  // Abrir dialog para editar
+  const handleEdit = (product) => {
+    setEditingProduct(product);
+    setFormData({
+      name: product.name || '',
+      brand: product.brand || '',
+      category: product.category || '',
+      subcategory: product.subcategory || '',
+      sku: product.sku || '',
+      price: product.price || 0,
+      sale_price: product.sale_price || 0,
+      discount_percent: product.discount_percent || 0,
+      stock: product.stock || 0,
+      images: product.images || [],
+      description: product.description || '',
+      active: product.active !== false,
+      featured: product.featured || false,
+      new_arrival: product.new_arrival || false,
+      best_seller: product.best_seller || false
+    });
+    setDialogOpen(true);
+  };
+
+  // Salvar produto
+  const handleSave = async () => {
+    if (!formData.name || !formData.brand || !formData.category || !formData.price) {
+      toast.error('Preencha os campos obrigatórios');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Calcular desconto
+      const data = {
+        ...formData,
+        discount_percent: formData.sale_price && formData.sale_price < formData.price
+          ? Math.round((1 - formData.sale_price / formData.price) * 100)
+          : 0
+      };
+
+      if (editingProduct) {
+        await base44.entities.Product.update(editingProduct.id, data);
+        toast.success('Produto atualizado!');
+      } else {
+        await base44.entities.Product.create(data);
+        toast.success('Produto criado!');
+      }
+
+      queryClient.invalidateQueries(['admin', 'products']);
+      setDialogOpen(false);
+    } catch (e) {
+      toast.error('Erro ao salvar produto');
+    }
+    setSaving(false);
+  };
+
+  // Deletar produto
+  const handleDelete = async () => {
+    if (!editingProduct) return;
+    try {
+      await base44.entities.Product.delete(editingProduct.id);
+      toast.success('Produto excluído!');
+      queryClient.invalidateQueries(['admin', 'products']);
+      setDeleteDialogOpen(false);
+      setEditingProduct(null);
+    } catch (e) {
+      toast.error('Erro ao excluir produto');
+    }
+  };
+
+  if (!user || user.role !== 'admin') {
+    return (
+      <div className={cn(
+        "min-h-screen flex items-center justify-center",
+        theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+      )}>
+        <p>Verificando permissões...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(
+      "min-h-screen flex",
+      theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+    )}>
+      <AdminSidebar />
+
+      <main className="flex-1 p-6 overflow-auto">
+        <div className="max-w-7xl mx-auto">
+          {/* Header */}
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div>
+              <h1 className={cn(
+                "text-2xl font-bold",
+                theme === 'dark' ? 'text-white' : 'text-zinc-900'
+              )}>
+                Produtos
+              </h1>
+              <p className={cn(
+                "text-sm",
+                theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'
+              )}>
+                {products.length} produtos cadastrados
+              </p>
+            </div>
+            <Button
+              onClick={handleCreate}
+              className={theme === 'dark' ? 'bg-amber-500 text-zinc-900 hover:bg-amber-400' : ''}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Novo Produto
+            </Button>
+          </div>
+
+          {/* Filtros */}
+          <div className={cn(
+            "flex flex-wrap gap-4 p-4 rounded-xl mb-6",
+            theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+          )}>
+            <div className="flex-1 min-w-[200px]">
+              <div className="relative">
+                <Search className={cn(
+                  "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4",
+                  theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'
+                )} />
+                <Input
+                  placeholder="Buscar por nome, marca ou SKU..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className={cn(
+                    "pl-10",
+                    theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''
+                  )}
+                />
+              </div>
+            </div>
+            <Select value={filterCategory} onValueChange={setFilterCategory}>
+              <SelectTrigger className={cn(
+                "w-48",
+                theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''
+              )}>
+                <SelectValue placeholder="Categoria" />
+              </SelectTrigger>
+              <SelectContent className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                <SelectItem value="all">Todas as categorias</SelectItem>
+                {categories.map(cat => (
+                  <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Tabela */}
+          <div className={cn(
+            "rounded-xl overflow-hidden",
+            theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+          )}>
+            <Table>
+              <TableHeader>
+                <TableRow className={theme === 'dark' ? 'border-zinc-800' : ''}>
+                  <TableHead className="w-16">Img</TableHead>
+                  <TableHead>Produto</TableHead>
+                  <TableHead>Categoria</TableHead>
+                  <TableHead className="text-right">Preço</TableHead>
+                  <TableHead className="text-center">Estoque</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
+                  <TableHead className="w-12"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredProducts.map((product) => (
+                  <TableRow
+                    key={product.id}
+                    className={cn(
+                      "cursor-pointer",
+                      theme === 'dark' ? 'border-zinc-800 hover:bg-zinc-800/50' : 'hover:bg-zinc-50'
+                    )}
+                    onClick={() => handleEdit(product)}
+                  >
+                    <TableCell>
+                      <div className={cn(
+                        "w-12 h-12 rounded-lg overflow-hidden",
+                        theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-100'
+                      )}>
+                        {product.images?.[0] ? (
+                          <img
+                            src={product.images[0]}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Package className="h-5 w-5 text-zinc-400" />
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <p className="font-medium">{product.name}</p>
+                      <p className={cn(
+                        "text-sm",
+                        theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'
+                      )}>
+                        {product.brand} · SKU: {product.sku || '-'}
+                      </p>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className={theme === 'dark' ? 'bg-zinc-800' : ''}>
+                        {categories.find(c => c.value === product.category)?.label || product.category}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <p className="font-medium">{formatPrice(product.sale_price || product.price)}</p>
+                      {product.sale_price && product.sale_price < product.price && (
+                        <p className="text-xs text-zinc-500 line-through">{formatPrice(product.price)}</p>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {product.stock === 0 ? (
+                        <Badge className="bg-red-100 text-red-700">Esgotado</Badge>
+                      ) : product.stock <= 5 ? (
+                        <Badge className="bg-amber-100 text-amber-700">{product.stock} un.</Badge>
+                      ) : (
+                        <span>{product.stock} un.</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge className={product.active !== false ? 'bg-green-100 text-green-700' : 'bg-zinc-100 text-zinc-500'}>
+                        {product.active !== false ? 'Ativo' : 'Inativo'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(product); }}>
+                            <Edit className="h-4 w-4 mr-2" /> Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-red-500"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingProduct(product);
+                              setDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" /> Excluir
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            {filteredProducts.length === 0 && (
+              <div className="text-center py-12">
+                <Package className={cn(
+                  "h-12 w-12 mx-auto mb-4",
+                  theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'
+                )} />
+                <p className={cn(
+                  theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'
+                )}>
+                  Nenhum produto encontrado
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+
+      {/* Dialog de edição/criação */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className={cn(
+          "max-w-2xl max-h-[90vh] overflow-y-auto",
+          theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''
+        )}>
+          <DialogHeader>
+            <DialogTitle>
+              {editingProduct ? 'Editar Produto' : 'Novo Produto'}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <Label>Nome *</Label>
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}
+                />
+              </div>
+              <div>
+                <Label>Marca *</Label>
+                <Input
+                  value={formData.brand}
+                  onChange={(e) => setFormData(prev => ({ ...prev, brand: e.target.value }))}
+                  className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}
+                />
+              </div>
+              <div>
+                <Label>Categoria *</Label>
+                <Select
+                  value={formData.category}
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, category: v }))}
+                >
+                  <SelectTrigger className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                    {categories.map(cat => (
+                      <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Subcategoria</Label>
+                <Select
+                  value={formData.subcategory}
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, subcategory: v }))}
+                >
+                  <SelectTrigger className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                    {subcategories.map(sub => (
+                      <SelectItem key={sub.value} value={sub.value}>{sub.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>SKU</Label>
+                <Input
+                  value={formData.sku}
+                  onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
+                  className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}
+                />
+              </div>
+              <div>
+                <Label>Estoque</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={formData.stock}
+                  onChange={(e) => setFormData(prev => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
+                  className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}
+                />
+              </div>
+              <div>
+                <Label>Preço Original *</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.price}
+                  onChange={(e) => setFormData(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                  className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}
+                />
+              </div>
+              <div>
+                <Label>Preço Promocional</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.sale_price}
+                  onChange={(e) => setFormData(prev => ({ ...prev, sale_price: parseFloat(e.target.value) || 0 }))}
+                  className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>URL da Imagem Principal</Label>
+              <Input
+                value={formData.images[0] || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, images: [e.target.value] }))}
+                placeholder="https://..."
+                className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}
+              />
+            </div>
+
+            <div>
+              <Label>Descrição</Label>
+              <Textarea
+                value={formData.description}
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}
+                rows={3}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-6">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={formData.active}
+                  onCheckedChange={(v) => setFormData(prev => ({ ...prev, active: v }))}
+                />
+                <Label>Ativo</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={formData.featured}
+                  onCheckedChange={(v) => setFormData(prev => ({ ...prev, featured: v }))}
+                />
+                <Label>Destaque</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={formData.new_arrival}
+                  onCheckedChange={(v) => setFormData(prev => ({ ...prev, new_arrival: v }))}
+                />
+                <Label>Lançamento</Label>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className={theme === 'dark' ? 'bg-amber-500 text-zinc-900 hover:bg-amber-400' : ''}
+            >
+              {saving ? 'Salvando...' : 'Salvar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de confirmação de exclusão */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+          <DialogHeader>
+            <DialogTitle>Confirmar Exclusão</DialogTitle>
+          </DialogHeader>
+          <p className={theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}>
+            Tem certeza que deseja excluir "{editingProduct?.name}"? Esta ação não pode ser desfeita.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              Excluir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

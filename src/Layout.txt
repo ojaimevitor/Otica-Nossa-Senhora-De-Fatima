@@ -1,0 +1,413 @@
+/**
+ * Layout.js - Layout principal da aplicação Ótica Fátima
+ * Controla tema (dark/light), navegação e estrutura geral
+ */
+import React, { useState, useEffect, createContext, useContext } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { createPageUrl } from './utils';
+import { base44 } from '@/api/base44Client';
+import {
+  Search, ShoppingCart, Heart, User, Menu, X, Sun, Moon,
+  Phone, ChevronDown, LogOut, Package, Settings, LayoutDashboard
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+
+// Contexto global para tema e carrinho
+export const AppContext = createContext();
+
+export const useAppContext = () => {
+  const context = useContext(AppContext);
+  if (!context) {
+    return { theme: 'light', cart: [], cartCount: 0 };
+  }
+  return context;
+};
+
+export default function Layout({ children, currentPageName }) {
+  const navigate = useNavigate();
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+  const [user, setUser] = useState(null);
+  const [cart, setCart] = useState(() => {
+    const saved = localStorage.getItem('cart');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  // Carregar usuário
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const userData = await base44.auth.me();
+        setUser(userData);
+      } catch (e) {
+        setUser(null);
+      }
+    };
+    loadUser();
+  }, []);
+
+  // Persistir tema
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, [theme]);
+
+  // Persistir carrinho
+  useEffect(() => {
+    localStorage.setItem('cart', JSON.stringify(cart));
+  }, [cart]);
+
+  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+  const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      navigate(createPageUrl('Search') + `?q=${encodeURIComponent(searchQuery.trim())}`);
+      setSearchOpen(false);
+      setSearchQuery('');
+    }
+  };
+
+  const handleLogout = async () => {
+    await base44.auth.logout();
+  };
+
+  const categories = [
+    { name: 'Óculos de Sol', href: createPageUrl('Category') + '?cat=oculos-sol' },
+    { name: 'Óculos de Grau', href: createPageUrl('Category') + '?cat=oculos-grau' },
+    { name: 'Lentes de Contato', href: createPageUrl('Category') + '?cat=lentes-contato' },
+    { name: 'Acessórios', href: createPageUrl('Category') + '?cat=acessorios' },
+  ];
+
+  const brands = ['Ray-Ban', 'Oakley', 'Arnette', 'Vogue', 'Tecnol', 'Burberry'];
+
+  // Páginas do Admin
+  const isAdminPage = currentPageName?.startsWith('Admin');
+  const isAdmin = user?.role === 'admin';
+
+  // Context value
+  const contextValue = {
+    theme,
+    setTheme,
+    toggleTheme,
+    user,
+    setUser,
+    cart,
+    setCart,
+    cartCount,
+  };
+
+  return (
+    <AppContext.Provider value={contextValue}>
+      <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark bg-zinc-950 text-white' : 'bg-white text-zinc-900'}`}>
+        <style>{`
+          :root {
+            --primary: ${theme === 'dark' ? '250 250 250' : '24 24 27'};
+            --primary-foreground: ${theme === 'dark' ? '24 24 27' : '250 250 250'};
+            --background: ${theme === 'dark' ? '9 9 11' : '255 255 255'};
+            --foreground: ${theme === 'dark' ? '250 250 250' : '9 9 11'};
+            --muted: ${theme === 'dark' ? '39 39 42' : '244 244 245'};
+            --muted-foreground: ${theme === 'dark' ? '161 161 170' : '113 113 122'};
+            --accent: ${theme === 'dark' ? '39 39 42' : '244 244 245'};
+            --accent-foreground: ${theme === 'dark' ? '250 250 250' : '24 24 27'};
+            --border: ${theme === 'dark' ? '39 39 42' : '228 228 231'};
+            --card: ${theme === 'dark' ? '24 24 27' : '255 255 255'};
+            --card-foreground: ${theme === 'dark' ? '250 250 250' : '9 9 11'};
+          }
+          .dark { color-scheme: dark; }
+        `}</style>
+
+        {/* Top Bar Promocional */}
+        <div className={`text-center py-2 text-xs md:text-sm font-medium ${theme === 'dark' ? 'bg-amber-500 text-zinc-900' : 'bg-zinc-900 text-white'}`}>
+          5% OFF ADICIONAL EM LENTES DE CONTATO: <span className="font-bold">EXTRA5</span> | FRETE GRÁTIS ACIMA DE R$299
+        </div>
+
+        {/* Header Principal */}
+        <header className={`sticky top-0 z-50 border-b ${theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+          {/* Linha Superior - Contato e Ações */}
+          <div className={`hidden md:flex items-center justify-between px-6 py-2 text-xs ${theme === 'dark' ? 'bg-zinc-800/50' : 'bg-zinc-50'}`}>
+            <div className="flex items-center gap-4">
+              <a href="tel:8899999999" className="flex items-center gap-1 hover:opacity-80 transition-opacity">
+                <Phone className="h-3 w-3" />
+                <span>(88) 9999-9999</span>
+              </a>
+              <span className={theme === 'dark' ? 'text-zinc-600' : 'text-zinc-300'}>|</span>
+              <span>Seg-Sex 9h às 17h</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <Link to={createPageUrl('Support')} className="hover:underline">Central de Atendimento</Link>
+              <span className={theme === 'dark' ? 'text-zinc-600' : 'text-zinc-300'}>|</span>
+              <Link to={createPageUrl('Orders')} className="hover:underline">Meus Pedidos</Link>
+            </div>
+          </div>
+
+          {/* Linha Principal - Logo, Busca, Ações */}
+          <div className="flex items-center justify-between px-4 md:px-6 py-3 gap-4">
+            {/* Mobile Menu */}
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetTrigger asChild className="md:hidden">
+                <Button variant="ghost" size="icon">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                <nav className="flex flex-col gap-4 mt-8">
+                  <Link to={createPageUrl('Home')} className="text-lg font-medium" onClick={() => setMobileMenuOpen(false)}>
+                    Início
+                  </Link>
+                  {categories.map(cat => (
+                    <Link key={cat.name} to={cat.href} className="text-lg" onClick={() => setMobileMenuOpen(false)}>
+                      {cat.name}
+                    </Link>
+                  ))}
+                  <hr className={theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'} />
+                  <Link to={createPageUrl('Support')} onClick={() => setMobileMenuOpen(false)}>Suporte</Link>
+                  <Link to={createPageUrl('Exams')} onClick={() => setMobileMenuOpen(false)}>Agendar Exame</Link>
+                </nav>
+              </SheetContent>
+            </Sheet>
+
+            {/* Logo */}
+            <Link to={createPageUrl('Home')} className="flex-shrink-0">
+              <h1 className="text-xl md:text-2xl font-bold tracking-tight">
+                ÓTICA <span className={theme === 'dark' ? 'text-amber-400' : 'text-amber-600'}>FÁTIMA</span>
+              </h1>
+            </Link>
+
+            {/* Busca Desktop */}
+            <form onSubmit={handleSearch} className="hidden md:flex flex-1 max-w-xl mx-8">
+              <div className="relative w-full">
+                <Input
+                  type="search"
+                  placeholder="Buscar produtos, marcas..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className={`w-full pl-4 pr-12 h-11 rounded-full ${theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-100 border-zinc-200'}`}
+                />
+                <Button type="submit" size="icon" variant="ghost" className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full">
+                  <Search className="h-4 w-4" />
+                </Button>
+              </div>
+            </form>
+
+            {/* Ações */}
+            <div className="flex items-center gap-1 md:gap-2">
+              {/* Busca Mobile */}
+              <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSearchOpen(!searchOpen)}>
+                <Search className="h-5 w-5" />
+              </Button>
+
+              {/* Tema */}
+              <Button variant="ghost" size="icon" onClick={toggleTheme} title={theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}>
+                {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              </Button>
+
+              {/* Favoritos */}
+              <Button variant="ghost" size="icon" asChild>
+                <Link to={createPageUrl('Favorites')}>
+                  <Heart className="h-5 w-5" />
+                </Link>
+              </Button>
+
+              {/* Carrinho */}
+              <Button variant="ghost" size="icon" className="relative" asChild>
+                <Link to={createPageUrl('Cart')}>
+                  <ShoppingCart className="h-5 w-5" />
+                  {cartCount > 0 && (
+                    <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs bg-amber-500 text-zinc-900">
+                      {cartCount > 9 ? '9+' : cartCount}
+                    </Badge>
+                  )}
+                </Link>
+              </Button>
+
+              {/* Usuário */}
+              {user ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                      <User className="h-5 w-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                    <div className="px-3 py-2">
+                      <p className="font-medium">{user.full_name || 'Usuário'}</p>
+                      <p className={`text-xs ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>{user.email}</p>
+                    </div>
+                    <DropdownMenuSeparator className={theme === 'dark' ? 'bg-zinc-800' : ''} />
+                    <DropdownMenuItem asChild>
+                      <Link to={createPageUrl('Profile')} className="cursor-pointer">
+                        <User className="h-4 w-4 mr-2" /> Meu Perfil
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to={createPageUrl('Orders')} className="cursor-pointer">
+                        <Package className="h-4 w-4 mr-2" /> Meus Pedidos
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to={createPageUrl('Favorites')} className="cursor-pointer">
+                        <Heart className="h-4 w-4 mr-2" /> Favoritos
+                      </Link>
+                    </DropdownMenuItem>
+                    {isAdmin && (
+                      <>
+                        <DropdownMenuSeparator className={theme === 'dark' ? 'bg-zinc-800' : ''} />
+                        <DropdownMenuItem asChild>
+                          <Link to={createPageUrl('AdminDashboard')} className="cursor-pointer">
+                            <LayoutDashboard className="h-4 w-4 mr-2" /> Painel Admin
+                          </Link>
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    <DropdownMenuSeparator className={theme === 'dark' ? 'bg-zinc-800' : ''} />
+                    <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-500">
+                      <LogOut className="h-4 w-4 mr-2" /> Sair
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={() => base44.auth.redirectToLogin()}>
+                  Entrar
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Busca Mobile Expandida */}
+          {searchOpen && (
+            <form onSubmit={handleSearch} className="md:hidden px-4 pb-3">
+              <div className="relative">
+                <Input
+                  type="search"
+                  placeholder="Buscar produtos..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  autoFocus
+                  className={`w-full pl-4 pr-12 h-10 rounded-full ${theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-100 border-zinc-200'}`}
+                />
+                <Button type="submit" size="icon" variant="ghost" className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full h-8 w-8">
+                  <Search className="h-4 w-4" />
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {/* Navegação Desktop */}
+          <nav className={`hidden md:flex items-center justify-center gap-8 px-6 py-3 border-t ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
+            {categories.map(cat => (
+              <Link
+                key={cat.name}
+                to={cat.href}
+                className={`text-sm font-medium transition-colors hover:opacity-70 ${theme === 'dark' ? 'text-zinc-300 hover:text-white' : 'text-zinc-700 hover:text-zinc-900'}`}
+              >
+                {cat.name}
+              </Link>
+            ))}
+            <DropdownMenu>
+              <DropdownMenuTrigger className={`flex items-center gap-1 text-sm font-medium transition-colors hover:opacity-70 ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'}`}>
+                Marcas <ChevronDown className="h-3 w-3" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className={theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : ''}>
+                {brands.map(brand => (
+                  <DropdownMenuItem key={brand} asChild>
+                    <Link to={createPageUrl('Search') + `?q=${brand}`}>{brand}</Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Link
+              to={createPageUrl('Search') + '?promo=true'}
+              className={`text-sm font-medium ${theme === 'dark' ? 'text-amber-400' : 'text-amber-600'}`}
+            >
+              Ofertas
+            </Link>
+          </nav>
+        </header>
+
+        {/* Conteúdo Principal */}
+        <main className="flex-1">
+          {children}
+        </main>
+
+        {/* Footer */}
+        <footer className={`mt-auto border-t ${theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+          {/* Newsletter */}
+          <div className={`py-8 px-4 ${theme === 'dark' ? 'bg-zinc-800/50' : 'bg-zinc-100'}`}>
+            <div className="max-w-xl mx-auto text-center">
+              <h3 className="text-lg font-bold mb-2">Receba novidades e promoções</h3>
+              <p className={`text-sm mb-4 ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                Cadastre-se e ganhe até R$100 de desconto na primeira compra
+              </p>
+              <form className="flex gap-2 max-w-md mx-auto">
+                <Input
+                  type="email"
+                  placeholder="Digite seu e-mail"
+                  className={`flex-1 ${theme === 'dark' ? 'bg-zinc-900 border-zinc-700' : ''}`}
+                />
+                <Button className={theme === 'dark' ? 'bg-amber-500 text-zinc-900 hover:bg-amber-400' : 'bg-zinc-900 hover:bg-zinc-800'}>
+                  Cadastrar
+                </Button>
+              </form>
+            </div>
+          </div>
+
+          {/* Links */}
+          <div className="max-w-7xl mx-auto px-4 py-10 grid grid-cols-2 md:grid-cols-4 gap-8">
+            <div>
+              <h4 className="font-bold mb-4">Compre</h4>
+              <ul className={`space-y-2 text-sm ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                <li><Link to={createPageUrl('Category') + '?cat=oculos-sol&sub=feminino'} className="hover:underline">Óculos feminino</Link></li>
+                <li><Link to={createPageUrl('Category') + '?cat=oculos-sol&sub=masculino'} className="hover:underline">Óculos masculino</Link></li>
+                <li><Link to={createPageUrl('Category') + '?cat=oculos-sol'} className="hover:underline">Óculos de sol</Link></li>
+                <li><Link to={createPageUrl('Category') + '?cat=oculos-grau'} className="hover:underline">Óculos de grau</Link></li>
+                <li><Link to={createPageUrl('Category') + '?cat=lentes-contato'} className="hover:underline">Lentes de contato</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-bold mb-4">Marcas</h4>
+              <ul className={`space-y-2 text-sm ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                {brands.map(b => (
+                  <li key={b}><Link to={createPageUrl('Search') + `?q=${b}`} className="hover:underline">{b}</Link></li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-bold mb-4">Institucional</h4>
+              <ul className={`space-y-2 text-sm ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                <li><Link to={createPageUrl('Support')} className="hover:underline">Fale conosco</Link></li>
+                <li><Link to={createPageUrl('Exams')} className="hover:underline">Agendar Exame</Link></li>
+                <li><a href="#" className="hover:underline">Sobre a Ótica Fátima</a></li>
+                <li><a href="#" className="hover:underline">Termos e condições</a></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-bold mb-4">Atendimento</h4>
+              <ul className={`space-y-2 text-sm ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                <li>Seg a Sex: 9h às 17h</li>
+                <li className="font-medium">(88) 9999-9999</li>
+                <li>Araripe-CE</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Copyright */}
+          <div className={`text-center text-xs py-4 border-t ${theme === 'dark' ? 'border-zinc-800 text-zinc-500' : 'border-zinc-200 text-zinc-500'}`}>
+            Ótica Fátima © {new Date().getFullYear()} | Todos os direitos reservados | Araripe-CE
+          </div>
+        </footer>
+      </div>
+    </AppContext.Provider>
+  );
+}

@@ -1,0 +1,507 @@
+import React, { useState, useContext, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+// Ajustado: Apontando para a sua pasta utils/index.js
+import { createPageUrl } from '@/utils';
+// Ajustado: Apontando para o seu arquivo de API (antigo apiAdapter)
+import { base44 } from '@/api/base44Client';
+// Ajustado: Apontando para o utils da pasta lib
+import { cn, formatPrice } from '@/lib/utils'; 
+import { AppContext } from '@/Layout';
+import {
+  ShoppingCart, Trash2, Minus, Plus, ArrowRight, ShoppingBag,
+  Truck, Tag, AlertCircle
+} from 'lucide-react';
+
+// Certifique-se que esses componentes existem em src/components/ui/
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+
+// Ajustado: Caminho do Assistant (Confirme se a pasta chama 'assistant')
+import AssistantWidget from '@/components/assistant/AssistantWidget';
+
+import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
+
+export default function Cart() {
+  const context = useContext(AppContext);
+  const theme = context?.theme || 'light';
+  const cart = context?.cart || [];
+  const setCart = context?.setCart || (() => {});
+  const navigate = useNavigate();
+
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState('');
+  
+  const formatPrice = (value) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  };
+
+  // Calcular totais
+  const subtotal = cart.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
+  const freeShippingThreshold = 299;
+  const shippingCost = subtotal >= freeShippingThreshold ? 0 : 29.90;
+  
+  // Desconto do cupom
+  let discountAmount = 0;
+  if (appliedCoupon) {
+    if (appliedCoupon.discount_type === 'percent') {
+      discountAmount = subtotal * (appliedCoupon.discount_value / 100);
+    } else {
+      discountAmount = appliedCoupon.discount_value;
+    }
+  }
+
+  const total = subtotal - discountAmount + shippingCost;
+  const pixTotal = total * 0.95;
+
+  // Handlers
+  const updateQuantity = (productId, newQuantity) => {
+    if (newQuantity < 1) return;
+    
+    setCart(cart.map(item => {
+      if (item.product_id === productId) {
+        const maxQty = Math.min(10, item.max_quantity || 10);
+        return { ...item, quantity: Math.min(newQuantity, maxQty) };
+      }
+      return item;
+    }));
+  };
+
+  const removeItem = (productId) => {
+    setCart(cart.filter(item => item.product_id !== productId));
+    toast.success('Item removido do carrinho');
+  };
+
+  const applyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCouponLoading(true);
+    setCouponError('');
+
+    try {
+      const coupons = await base44.entities.Coupon.filter({
+        code: couponCode.toUpperCase(),
+        active: true
+      });
+
+      if (coupons.length === 0) {
+        setCouponError('Cupom inválido ou expirado');
+        setCouponLoading(false);
+        return;
+      }
+
+      const coupon = coupons[0];
+
+      // Verificar validade
+      const now = new Date();
+      if (coupon.valid_from && new Date(coupon.valid_from) > now) {
+        setCouponError('Cupom ainda não está válido');
+        setCouponLoading(false);
+        return;
+      }
+      if (coupon.valid_until && new Date(coupon.valid_until) < now) {
+        setCouponError('Cupom expirado');
+        setCouponLoading(false);
+        return;
+      }
+
+      // Verificar valor mínimo
+      if (coupon.min_purchase && subtotal < coupon.min_purchase) {
+        setCouponError(`Valor mínimo: ${formatPrice(coupon.min_purchase)}`);
+        setCouponLoading(false);
+        return;
+      }
+
+      // Verificar usos
+      if (coupon.max_uses && coupon.uses_count >= coupon.max_uses) {
+        setCouponError('Cupom esgotado');
+        setCouponLoading(false);
+        return;
+      }
+
+      setAppliedCoupon(coupon);
+      toast.success('Cupom aplicado com sucesso!');
+    } catch (e) {
+      setCouponError('Erro ao verificar cupom');
+    }
+
+    setCouponLoading(false);
+  };
+
+  const removeCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponCode('');
+    setCouponError('');
+  };
+
+  const handleCheckout = () => {
+    if (cart.length === 0) return;
+    
+    // Salvar dados do pedido no localStorage para o checkout
+    localStorage.setItem('checkout_data', JSON.stringify({
+      items: cart,
+      subtotal,
+      discount: discountAmount,
+      coupon: appliedCoupon,
+      shipping: shippingCost,
+      total,
+      pixTotal
+    }));
+
+    navigate(createPageUrl('Checkout'));
+  };
+
+  if (cart.length === 0) {
+    return (
+      <div className={cn(
+        "min-h-screen flex items-center justify-center px-4",
+        theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+      )}>
+        <div className="text-center">
+          <ShoppingBag className={cn(
+            "h-20 w-20 mx-auto mb-6",
+            theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'
+          )} />
+          <h2 className={cn(
+            "text-2xl font-bold mb-3",
+            theme === 'dark' ? 'text-white' : 'text-zinc-900'
+          )}>
+            Seu carrinho está vazio
+          </h2>
+          <p className={cn(
+            "text-sm mb-6",
+            theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'
+          )}>
+            Que tal explorar nossos produtos?
+          </p>
+          <Link to={createPageUrl('Home')}>
+            <Button className={theme === 'dark' ? 'bg-amber-500 text-zinc-900 hover:bg-amber-400' : ''}>
+              Continuar Comprando
+            </Button>
+          </Link>
+        </div>
+        <AssistantWidget />
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(
+      "min-h-screen py-8 px-4",
+      theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+    )}>
+      <div className="max-w-6xl mx-auto">
+        <h1 className={cn(
+          "text-2xl md:text-3xl font-bold mb-8",
+          theme === 'dark' ? 'text-white' : 'text-zinc-900'
+        )}>
+          Carrinho de Compras
+        </h1>
+
+        <div className="grid lg:grid-cols-3 gap-8">
+          {/* Lista de itens */}
+          <div className="lg:col-span-2 space-y-4">
+            {/* Barra de progresso frete grátis */}
+            {subtotal < freeShippingThreshold && (
+              <div className={cn(
+                "p-4 rounded-xl",
+                theme === 'dark' ? 'bg-zinc-800/50' : 'bg-amber-50'
+              )}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Truck className={cn(
+                    "h-5 w-5",
+                    theme === 'dark' ? 'text-amber-400' : 'text-amber-600'
+                  )} />
+                  <span className="text-sm font-medium">
+                    Faltam {formatPrice(freeShippingThreshold - subtotal)} para frete grátis!
+                  </span>
+                </div>
+                <div className={cn(
+                  "h-2 rounded-full overflow-hidden",
+                  theme === 'dark' ? 'bg-zinc-700' : 'bg-amber-200'
+                )}>
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      theme === 'dark' ? 'bg-amber-500' : 'bg-amber-500'
+                    )}
+                    style={{ width: `${Math.min(100, (subtotal / freeShippingThreshold) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <AnimatePresence>
+              {cart.map((item) => (
+                <motion.div
+                  key={item.product_id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: -100 }}
+                  className={cn(
+                    "flex gap-4 p-4 rounded-xl",
+                    theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+                  )}
+                >
+                  {/* Imagem */}
+                  <Link
+                    to={createPageUrl('Product') + `?id=${item.product_id}`}
+                    className="flex-shrink-0"
+                  >
+                    <div className={cn(
+                      "w-24 h-24 md:w-32 md:h-32 rounded-lg overflow-hidden",
+                      theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-100'
+                    )}>
+                      <img
+                        src={item.product_image || 'https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=200'}
+                        alt={item.product_name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  </Link>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between gap-2">
+                      <div>
+                        <p className={cn(
+                          "text-xs font-medium uppercase",
+                          theme === 'dark' ? 'text-amber-400' : 'text-amber-600'
+                        )}>
+                          {item.brand}
+                        </p>
+                        <Link
+                          to={createPageUrl('Product') + `?id=${item.product_id}`}
+                          className="hover:underline"
+                        >
+                          <h3 className={cn(
+                            "font-semibold line-clamp-2",
+                            theme === 'dark' ? 'text-white' : 'text-zinc-900'
+                          )}>
+                            {item.product_name}
+                          </h3>
+                        </Link>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="flex-shrink-0 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                        onClick={() => removeItem(item.product_id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="flex items-end justify-between mt-4">
+                      {/* Quantidade */}
+                      <div className={cn(
+                        "flex items-center rounded-lg border",
+                        theme === 'dark' ? 'border-zinc-700' : 'border-zinc-200'
+                      )}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => updateQuantity(item.product_id, item.quantity - 1)}
+                          disabled={item.quantity <= 1}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="w-8 text-center text-sm font-medium">
+                          {item.quantity}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => updateQuantity(item.product_id, item.quantity + 1)}
+                          disabled={item.quantity >= Math.min(10, item.max_quantity || 10)}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+
+                      {/* Preço */}
+                      <div className="text-right">
+                        <p className={cn(
+                          "text-lg font-bold",
+                          theme === 'dark' ? 'text-white' : 'text-zinc-900'
+                        )}>
+                          {formatPrice(item.unit_price * item.quantity)}
+                        </p>
+                        {item.quantity > 1 && (
+                          <p className={cn(
+                            "text-xs",
+                            theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'
+                          )}>
+                            {formatPrice(item.unit_price)} cada
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {item.quantity >= 10 && (
+                      <p className={cn(
+                        "text-xs mt-2",
+                        theme === 'dark' ? 'text-amber-400' : 'text-amber-600'
+                      )}>
+                        Limite máximo atingido
+                      </p>
+                    )}
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+
+            <Link to={createPageUrl('Home')} className="inline-flex items-center gap-2 text-sm hover:underline">
+              <ShoppingBag className="h-4 w-4" />
+              Continuar comprando
+            </Link>
+          </div>
+
+          {/* Resumo */}
+          <div className="lg:col-span-1">
+            <div className={cn(
+              "sticky top-28 rounded-xl p-6 space-y-6",
+              theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+            )}>
+              <h2 className="text-lg font-bold">Resumo do Pedido</h2>
+
+              {/* Cupom */}
+              <div>
+                <label className={cn(
+                  "text-sm font-medium mb-2 block",
+                  theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'
+                )}>
+                  Cupom de desconto
+                </label>
+                {appliedCoupon ? (
+                  <div className={cn(
+                    "flex items-center justify-between p-3 rounded-lg",
+                    theme === 'dark' ? 'bg-green-950 border border-green-800' : 'bg-green-50 border border-green-200'
+                  )}>
+                    <div className="flex items-center gap-2">
+                      <Tag className="h-4 w-4 text-green-500" />
+                      <span className="font-medium text-green-600">{appliedCoupon.code}</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto p-1 text-red-500"
+                      onClick={removeCoupon}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Código do cupom"
+                      value={couponCode}
+                      onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                      className={theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : ''}
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={applyCoupon}
+                      disabled={couponLoading}
+                      className={theme === 'dark' ? 'border-zinc-700' : ''}
+                    >
+                      Aplicar
+                    </Button>
+                  </div>
+                )}
+                {couponError && (
+                  <p className="text-red-500 text-xs mt-2">{couponError}</p>
+                )}
+              </div>
+
+              <Separator className={theme === 'dark' ? 'bg-zinc-800' : ''} />
+
+              {/* Valores */}
+              <div className="space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className={theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}>
+                    Subtotal ({cart.length} {cart.length === 1 ? 'item' : 'itens'})
+                  </span>
+                  <span>{formatPrice(subtotal)}</span>
+                </div>
+                
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-sm text-green-500">
+                    <span>Desconto</span>
+                    <span>-{formatPrice(discountAmount)}</span>
+                  </div>
+                )}
+                
+                <div className="flex justify-between text-sm">
+                  <span className={theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}>
+                    Frete
+                  </span>
+                  <span className={shippingCost === 0 ? 'text-green-500 font-medium' : ''}>
+                    {shippingCost === 0 ? 'Grátis' : formatPrice(shippingCost)}
+                  </span>
+                </div>
+              </div>
+
+              <Separator className={theme === 'dark' ? 'bg-zinc-800' : ''} />
+
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="font-bold text-lg">Total</span>
+                  <span className="font-bold text-lg">{formatPrice(total)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className={cn(
+                    "text-sm",
+                    theme === 'dark' ? 'text-green-400' : 'text-green-600'
+                  )}>
+                    No PIX
+                  </span>
+                  <span className={cn(
+                    "font-bold",
+                    theme === 'dark' ? 'text-green-400' : 'text-green-600'
+                  )}>
+                    {formatPrice(pixTotal)}
+                  </span>
+                </div>
+                <p className={cn(
+                  "text-xs",
+                  theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'
+                )}>
+                  ou em até 10x de {formatPrice(total / 10)} sem juros
+                </p>
+              </div>
+
+              <Button
+                className={cn(
+                  "w-full h-12 text-base font-semibold gap-2",
+                  theme === 'dark'
+                    ? 'bg-amber-500 text-zinc-900 hover:bg-amber-400'
+                    : 'bg-zinc-900 hover:bg-zinc-800'
+                )}
+                onClick={handleCheckout}
+              >
+                Finalizar Compra
+                <ArrowRight className="h-5 w-5" />
+              </Button>
+
+              <p className={cn(
+                "text-xs text-center",
+                theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'
+              )}>
+                Ambiente seguro. Seus dados estão protegidos.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <AssistantWidget />
+    </div>
+  );
+}

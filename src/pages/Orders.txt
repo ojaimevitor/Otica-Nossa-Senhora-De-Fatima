@@ -1,0 +1,266 @@
+/**
+ * Orders.jsx - Página Meus Pedidos
+ */
+import React, { useState, useEffect, useContext } from 'react';
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import { base44 } from '@/api/base44Client';
+import { useQuery } from '@tanstack/react-query';
+import { cn } from '@/lib/utils';
+import { AppContext } from '@/Layout';
+import {
+  Package, ChevronRight, Clock, CheckCircle, Truck, XCircle, AlertCircle
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import AssistantWidget from '@/components/assistant/AssistantWidget';
+import { motion } from 'framer-motion';
+
+const statusConfig = {
+  pending: { label: 'Pendente', icon: Clock, color: 'text-yellow-500', bg: 'bg-yellow-100' },
+  confirmed: { label: 'Confirmado', icon: CheckCircle, color: 'text-blue-500', bg: 'bg-blue-100' },
+  processing: { label: 'Preparando', icon: Package, color: 'text-purple-500', bg: 'bg-purple-100' },
+  shipped: { label: 'Enviado', icon: Truck, color: 'text-indigo-500', bg: 'bg-indigo-100' },
+  delivered: { label: 'Entregue', icon: CheckCircle, color: 'text-green-500', bg: 'bg-green-100' },
+  cancelled: { label: 'Cancelado', icon: XCircle, color: 'text-red-500', bg: 'bg-red-100' }
+};
+
+export default function Orders() {
+  const context = useContext(AppContext);
+  const theme = context?.theme || 'light';
+  const user = context?.user;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const newOrderId = urlParams.get('new');
+
+  // Buscar pedidos
+  const { data: orders = [], isLoading } = useQuery({
+    queryKey: ['orders', user?.email],
+    queryFn: async () => {
+      if (!user?.email) return [];
+      const data = await base44.entities.Order.filter(
+        { user_email: user.email },
+        '-created_date',
+        50
+      );
+      return data;
+    },
+    enabled: !!user?.email
+  });
+
+  const formatPrice = (value) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  };
+
+  // Verificar login
+  useEffect(() => {
+    if (!user) {
+      base44.auth.redirectToLogin(window.location.href);
+    }
+  }, [user]);
+
+  if (!user) {
+    return (
+      <div className={cn(
+        "min-h-screen flex items-center justify-center",
+        theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+      )}>
+        <p>Carregando...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(
+      "min-h-screen py-8 px-4",
+      theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'
+    )}>
+      <div className="max-w-4xl mx-auto">
+        <h1 className={cn(
+          "text-2xl md:text-3xl font-bold mb-8",
+          theme === 'dark' ? 'text-white' : 'text-zinc-900'
+        )}>
+          Meus Pedidos
+        </h1>
+
+        {/* Mensagem de novo pedido */}
+        {newOrderId && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={cn(
+              "mb-6 p-4 rounded-xl border flex items-center gap-3",
+              theme === 'dark'
+                ? 'bg-green-950 border-green-800'
+                : 'bg-green-50 border-green-200'
+            )}
+          >
+            <CheckCircle className="h-6 w-6 text-green-500" />
+            <div>
+              <p className="font-medium text-green-600">Pedido realizado com sucesso!</p>
+              <p className={cn(
+                "text-sm",
+                theme === 'dark' ? 'text-green-400' : 'text-green-700'
+              )}>
+                Você receberá um e-mail com os detalhes da compra.
+              </p>
+            </div>
+          </motion.div>
+        )}
+
+        {isLoading ? (
+          <div className="space-y-4">
+            {[1, 2, 3].map(i => (
+              <Skeleton key={i} className="h-40 rounded-xl" />
+            ))}
+          </div>
+        ) : orders.length === 0 ? (
+          <div className={cn(
+            "text-center py-16 rounded-xl",
+            theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm'
+          )}>
+            <Package className={cn(
+              "h-16 w-16 mx-auto mb-4",
+              theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'
+            )} />
+            <h2 className={cn(
+              "text-xl font-semibold mb-2",
+              theme === 'dark' ? 'text-white' : 'text-zinc-900'
+            )}>
+              Nenhum pedido encontrado
+            </h2>
+            <p className={cn(
+              "text-sm mb-6",
+              theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'
+            )}>
+              Você ainda não realizou nenhuma compra
+            </p>
+            <Link to={createPageUrl('Home')}>
+              <Button className={theme === 'dark' ? 'bg-amber-500 text-zinc-900 hover:bg-amber-400' : ''}>
+                Começar a Comprar
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {orders.map((order, idx) => {
+              const status = statusConfig[order.status] || statusConfig.pending;
+              const StatusIcon = status.icon;
+              const isNew = order.id === newOrderId;
+
+              return (
+                <motion.div
+                  key={order.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className={cn(
+                    "rounded-xl overflow-hidden",
+                    theme === 'dark' ? 'bg-zinc-900' : 'bg-white shadow-sm',
+                    isNew && (theme === 'dark' ? 'ring-2 ring-green-500' : 'ring-2 ring-green-500')
+                  )}
+                >
+                  {/* Header do pedido */}
+                  <div className={cn(
+                    "flex flex-wrap items-center justify-between gap-4 p-4 border-b",
+                    theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'
+                  )}>
+                    <div className="flex items-center gap-4">
+                      <div className={cn(
+                        "h-10 w-10 rounded-full flex items-center justify-center",
+                        theme === 'dark' ? 'bg-zinc-800' : status.bg
+                      )}>
+                        <StatusIcon className={cn("h-5 w-5", status.color)} />
+                      </div>
+                      <div>
+                        <p className="font-medium">Pedido #{order.id?.slice(-8).toUpperCase()}</p>
+                        <p className={cn(
+                          "text-sm",
+                          theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'
+                        )}>
+                          {format(new Date(order.created_date), "d 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge className={cn(status.bg, status.color, 'border-0')}>
+                      {status.label}
+                    </Badge>
+                  </div>
+
+                  {/* Itens */}
+                  <div className="p-4">
+                    <div className="flex gap-3 overflow-x-auto pb-2">
+                      {order.items?.slice(0, 4).map((item, i) => (
+                        <div
+                          key={i}
+                          className={cn(
+                            "flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden",
+                            theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-100'
+                          )}
+                        >
+                          <img
+                            src={item.product_image || 'https://via.placeholder.com/64'}
+                            alt={item.product_name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      ))}
+                      {order.items?.length > 4 && (
+                        <div className={cn(
+                          "flex-shrink-0 w-16 h-16 rounded-lg flex items-center justify-center",
+                          theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-100'
+                        )}>
+                          <span className="text-sm font-medium">+{order.items.length - 4}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between mt-4">
+                      <div>
+                        <p className={cn(
+                          "text-sm",
+                          theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'
+                        )}>
+                          {order.items?.length} {order.items?.length === 1 ? 'item' : 'itens'}
+                        </p>
+                        <p className="font-bold text-lg">{formatPrice(order.total)}</p>
+                      </div>
+                      <Button variant="ghost" className="gap-1">
+                        Ver detalhes
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    {/* Rastreamento */}
+                    {order.tracking_code && order.status === 'shipped' && (
+                      <div className={cn(
+                        "mt-4 p-3 rounded-lg flex items-center gap-3",
+                        theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-50'
+                      )}>
+                        <Truck className="h-4 w-4" />
+                        <div>
+                          <p className="text-sm font-medium">Código de rastreamento</p>
+                          <p className={cn(
+                            "text-xs",
+                            theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'
+                          )}>
+                            {order.tracking_code}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <AssistantWidget />
+    </div>
+  );
+}
