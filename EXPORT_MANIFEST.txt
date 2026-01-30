@@ -1,0 +1,74 @@
+MANIFESTO DE EXPORTAÇÃO
+=======================
+Data: 30/01/2026, 10:59:33
+
+ESTATÍSTICAS:
+- Total de arquivos: ~51
+- Páginas: 17
+- Componentes: 9
+- Entidades (schemas): 6
+
+ESTRUTURA:
+/src
+  /pages (17 arquivos)
+  /components
+    /ui (componentes shadcn)
+    /home (componentes da home)
+    /products (ProductCard)
+    /assistant (AssistantWidget)
+    /admin (AdminSidebar)
+  /services (API Adapter)
+  /data (dados mock)
+  /lib (utilitários)
+  App.jsx
+  Layout.jsx
+  main.jsx
+  index.css
+
+PÁGINAS INCLUÍDAS:
+- Home
+- Category
+- Search
+- Product
+- Cart
+- Checkout
+- Profile
+- Favorites
+- Orders
+- Exams
+- Support
+- AdminDashboard
+- AdminProducts
+- AdminOrders
+- AdminUsers
+- AdminCoupons
+- AdminAppointments
+
+COMPONENTES INCLUÍDOS:
+- products/ProductCard
+- home/HeroCarousel
+- home/PromoBanners
+- home/ProductCarousel
+- home/BrandsCarousel
+- home/HowItWorks
+- home/CategoryBanners
+- assistant/AssistantWidget
+- admin/AdminSidebar
+
+FUNCIONALIDADES:
+- [x] Dark/Light mode
+- [x] Carrinho (limite 10 itens)
+- [x] Sistema de cupons
+- [x] Favoritos
+- [x] Busca normalizada
+- [x] Agendamento quinzenal
+- [x] Assistente guiado
+- [x] Dashboard admin
+- [x] CRUD completo
+
+NOTA: Algumas páginas contêm placeholders indicando onde
+colar o código real do Base44. Isso é necessário devido
+às limitações de tamanho do arquivo de exportação.
+
+Para código 100% completo, copie o conteúdo de cada
+arquivo pages/*.jsx do projeto Base44 original.
